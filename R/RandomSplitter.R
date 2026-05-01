@@ -19,12 +19,17 @@ NULL
 #' head(shuffled_iris)
 #' @export
 shuffle_df <- function(df) {
-  if (!is.data.frame(df))
-    stop("Input must be a data.frame")
-  n <- nrow(df)
-  if (n <= 1)
-    return(df)
+  # Validate input type
+  if (!is.data.frame(df)) {
+    stop("Input 'df' must be a data.frame or tibble.", call. = FALSE)
+  }
   
+  n <- nrow(df)
+  
+  # Handle edge cases (empty or single-row DF)
+  if (n <= 1) return(df)
+  
+  # Ensure sample_n (presumably your Rcpp function) handles the indices
   indices <- sample_n(n)
   df[indices, , drop = FALSE]
 }
@@ -62,28 +67,61 @@ split_df <- function(df,
                      weights = c(0.8, 0.2),
                      names = NULL,
                      stratify_by = NULL) {
-  if (!is.data.frame(df))
-    stop("Input must be a data.frame")
+  # 1. Data Frame Validation
+  if (!is.data.frame(df)) {
+    stop("Input 'df' must be a data.frame.", call. = FALSE)
+  }
   
+  n_rows <- nrow(df)
+  if (n_rows == 0) {
+    stop("Input 'df' has 0 rows. Cannot split an empty data frame.", call. = FALSE)
+  }
+
+  # 2. Weights Validation
+  if (!is.numeric(weights) || any(is.na(weights)) || any(weights < 0)) {
+    stop("'weights' must be a non-negative numeric vector without NAs.", call. = FALSE)
+  }
+  
+  if (sum(weights) <= 0) {
+    stop("The sum of 'weights' must be greater than 0.", call. = FALSE)
+  }
+  
+  # Normalize weights if they don't sum to 1
+  if (abs(sum(weights) - 1) > .Machine$double.eps^0.5) {
+    weights <- weights / sum(weights)
+  }
+
+  # 3. Stratification Logic
   if (is.null(stratify_by)) {
-    idx_list <- random_split_indices(nrow(df), weights)
+    idx_list <- random_split_indices(n_rows, weights)
   } else {
-    if (!stratify_by %in% names(df))
-      stop("Stratification column not found.")
+    if (!(stratify_by %in% names(df))) {
+      stop(sprintf("Column '%s' not found in the data frame.", stratify_by), call. = FALSE)
+    }
+    
+    # Ensure stratification column doesn't have NAs (common cause of Rcpp crashes)
+    if (any(is.na(df[[stratify_by]]))) {
+      warning("Stratification column contains NAs. These will be treated as a distinct level.")
+    }
+    
     labels <- as.integer(as.factor(df[[stratify_by]]))
     idx_list <- stratified_split_indices(labels, weights)
   }
   
-  out <- lapply(idx_list, function(idx)
-    df[idx, , drop = FALSE])
+  # 4. Subset Generation
+  out <- lapply(idx_list, function(idx) df[idx, , drop = FALSE])
   
-  if (!is.null(names) && length(names) == length(out)) {
+  # 5. Naming Logic
+  if (!is.null(names)) {
+    if (length(names) != length(weights)) {
+      stop("Length of 'names' must match the length of 'weights'.", call. = FALSE)
+    }
     names(out) <- names
-  } else if (is.null(names) && length(weights) == 2) {
+  } else if (length(weights) == 2) {
     names(out) <- c("train", "test")
   }
   
-  out
+  return(out)
 }
 
 #' Fast Train/Test Split Wrapper
@@ -111,6 +149,15 @@ split_df <- function(df,
 train_test_split <- function(df,
                              train_size = 0.75,
                              stratify_by = NULL) {
+  # Specific validation for train_size
+  if (!is.numeric(train_size) || length(train_size) != 1) {
+    stop("'train_size' must be a single numeric value.", call. = FALSE)
+  }
+  
+  if (train_size <= 0 || train_size >= 1) {
+    stop("'train_size' must be between 0 and 1 (exclusive).", call. = FALSE)
+  }
+  
   split_df(
     df = df,
     weights = c(train_size, 1 - train_size),
