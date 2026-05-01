@@ -1,0 +1,18 @@
+Package: RandomSplitter
+Title: Fast Data Splitting Using Rcpp
+Version: 0.0.1
+Authors@R: 
+    person("Alan", "Tseng", 
+           email = "langesant@outlook.com", 
+           role = c("aut", "cre"))
+Description: Implements high-performance data splitting utilities 
+    designed for large datasets. By leveraging Rcpp and C++ headers, 
+    the package allows for rapid random and stratified partitioning 
+    of data frames while maintaining low memory overhead.
+License: GPL-3
+Roxygen: list(markdown = TRUE)
+LinkingTo: Rcpp
+Imports: Rcpp
+SystemRequirements: C++17
+RoxygenNote: 7.3.3
+Encoding: UTF-8
