@@ -1,5 +1,6 @@
 #' @useDynLib RandomSplitter, .registration = TRUE
 #' @importFrom Rcpp sourceCpp
+#' @import checkmate
 NULL
 
 #' Randomly Shuffle Data Frame Rows
@@ -20,16 +21,13 @@ NULL
 #' @export
 shuffle_df <- function(df) {
   # Validate input type
-  if (!is.data.frame(df)) {
-    stop("Input 'df' must be a data.frame or tibble.", call. = FALSE)
-  }
+  checkmate::assert_data_frame(df)
   
   n <- nrow(df)
   
   # Handle edge cases (empty or single-row DF)
   if (n <= 1) return(df)
   
-  # Ensure sample_n (presumably your Rcpp function) handles the indices
   indices <- sample_n(n)
   df[indices, , drop = FALSE]
 }
@@ -67,21 +65,16 @@ split_df <- function(df,
                      weights = c(0.8, 0.2),
                      names = NULL,
                      stratify_by = NULL) {
+  
   # 1. Data Frame Validation
-  if (!is.data.frame(df)) {
-    stop("Input 'df' must be a data.frame.", call. = FALSE)
-  }
+  checkmate::assert_data_frame(df, min.rows = 1)
   
-  n_rows <- nrow(df)
-  if (n_rows == 0) {
-    stop("Input 'df' has 0 rows. Cannot split an empty data frame.", call. = FALSE)
-  }
-
   # 2. Weights Validation
-  if (!is.numeric(weights) || any(is.na(weights)) || any(weights < 0)) {
-    stop("'weights' must be a non-negative numeric vector without NAs.", call. = FALSE)
-  }
+  # Ensures weights are numeric, non-negative, finite, and at least length 1
+  checkmate::assert_numeric(weights, lower = 0, any.missing = FALSE, 
+                            min.len = 1, finite = TRUE)
   
+  # Ensure the sum is greater than 0 to avoid division by zero
   if (sum(weights) <= 0) {
     stop("The sum of 'weights' must be greater than 0.", call. = FALSE)
   }
@@ -93,13 +86,12 @@ split_df <- function(df,
 
   # 3. Stratification Logic
   if (is.null(stratify_by)) {
-    idx_list <- random_split_indices(n_rows, weights)
+    idx_list <- random_split_indices(nrow(df), weights)
   } else {
-    if (!(stratify_by %in% names(df))) {
-      stop(sprintf("Column '%s' not found in the data frame.", stratify_by), call. = FALSE)
-    }
+    # Check if column exists
+    checkmate::assert_string(stratify_by)
+    checkmate::assert_names(stratify_by, subset.of = names(df))
     
-    # Ensure stratification column doesn't have NAs (common cause of Rcpp crashes)
     if (any(is.na(df[[stratify_by]]))) {
       warning("Stratification column contains NAs. These will be treated as a distinct level.")
     }
@@ -113,9 +105,7 @@ split_df <- function(df,
   
   # 5. Naming Logic
   if (!is.null(names)) {
-    if (length(names) != length(weights)) {
-      stop("Length of 'names' must match the length of 'weights'.", call. = FALSE)
-    }
+    checkmate::assert_character(names, len = length(weights), any.missing = FALSE)
     names(out) <- names
   } else if (length(weights) == 2) {
     names(out) <- c("train", "test")
@@ -149,11 +139,11 @@ split_df <- function(df,
 train_test_split <- function(df,
                              train_size = 0.75,
                              stratify_by = NULL) {
-  # Specific validation for train_size
-  if (!is.numeric(train_size) || length(train_size) != 1) {
-    stop("'train_size' must be a single numeric value.", call. = FALSE)
-  }
   
+  # Specific validation for train_size
+  checkmate::assert_number(train_size, lower = 0, upper = 1, finite = TRUE)
+  
+  # Checkmate 'lower' and 'upper' are inclusive; we check exclusivity here
   if (train_size <= 0 || train_size >= 1) {
     stop("'train_size' must be between 0 and 1 (exclusive).", call. = FALSE)
   }

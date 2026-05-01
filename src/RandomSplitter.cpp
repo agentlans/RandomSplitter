@@ -42,25 +42,36 @@ struct R_Generator {
  */
 std::vector<size_t> apportion_counts(size_t total, const NumericVector& weights) {
   const int n = weights.size();
-  double total_weight = std::accumulate(weights.begin(), weights.end(), 0.0);
-  
+  if (n == 0) return std::vector<size_t>();
+
+  // Check for NA/NaN and negative weights
+  double total_weight = 0.0;
+  for (int i = 0; i < n; ++i) {
+    if (NumericVector::is_na(weights[i]) || std::isnan(weights[i])) {
+      stop("Weights contain NA or NaN values.");
+    }
+    if (weights[i] < 0) {
+      stop("Weights must be non-negative.");
+    }
+    total_weight += weights[i];
+  }
+
   if (total_weight <= 0) stop("Sum of weights must be positive.");
-  const double scale = total / total_weight;
   
+  const double scale = static_cast<double>(total) / total_weight;
   std::vector<size_t> counts(n);
   std::vector<std::pair<double, int>> remainders(n);
   size_t assigned = 0;
-  
+
   for (int i = 0; i < n; ++i) {
     double exact = weights[i] * scale;
     counts[i] = static_cast<size_t>(std::floor(exact));
     remainders[i] = {exact - counts[i], i};
     assigned += counts[i];
   }
-  
+
   size_t gap = total - assigned;
-  if (gap > 0) {
-    // Sort indices by descending fractional remainder
+  if (gap > 0 && gap <= (size_t)n) {
     std::nth_element(remainders.begin(), remainders.begin() + gap - 1, remainders.end(),
                      [](const std::pair<double, int>& a, const std::pair<double, int>& b) {
                        return a.first > b.first;
@@ -80,25 +91,32 @@ std::vector<size_t> apportion_counts(size_t total, const NumericVector& weights)
  */
 // [[Rcpp::export]]
 List random_split_indices(int n, NumericVector split_weights) {
-  if (n <= 0) return List::create();
+  if (n < 0) stop("n must be non-negative.");
+  if (n == 0) return List::create();
+  if (split_weights.size() == 0) stop("split_weights cannot be empty.");
+
   RNGScope scope;
   R_Generator g;
-  
+
   IntegerVector indices = no_init(n);
   std::iota(indices.begin(), indices.end(), 1);
   std::shuffle(indices.begin(), indices.end(), g);
-  
+
   const auto counts = apportion_counts(static_cast<size_t>(n), split_weights);
   List out(counts.size());
-  
+
   int offset = 0;
   for (size_t i = 0; i < counts.size(); ++i) {
-    IntegerVector split = no_init(counts[i]);
-    std::copy(indices.begin() + offset, indices.begin() + offset + counts[i], split.begin());
-    // Shuffle the final split to ensure randomness within the bucket
-    std::shuffle(split.begin(), split.end(), g);
+    size_t current_count = counts[i];
+    IntegerVector split = no_init(current_count);
+    std::copy(indices.begin() + offset, indices.begin() + offset + current_count, split.begin());
+    
+    if (current_count > 1) {
+      std::shuffle(split.begin(), split.end(), g);
+    }
+    
     out[i] = split;
-    offset += counts[i];
+    offset += current_count;
   }
   return out;
 }
@@ -114,25 +132,31 @@ List random_split_indices(int n, NumericVector split_weights) {
 List stratified_split_indices(IntegerVector labels, NumericVector split_weights) {
   int n = labels.size();
   if (n == 0) return List::create();
-  
+  if (split_weights.size() == 0) stop("split_weights cannot be empty.");
+
   RNGScope scope;
   R_Generator g;
-  
-  // Grouping indices by label for stratified processing
+
+  // Grouping indices by label
   std::map<int, std::vector<int>> strata;
   for (int i = 0; i < n; ++i) {
+    if (IntegerVector::is_na(labels[i])) {
+      stop("labels contain NA values. Please handle missing strata before splitting.");
+    }
     strata[labels[i]].push_back(i + 1);
   }
-  
+
   int num_splits = split_weights.size();
   std::vector<std::vector<int>> split_acc(num_splits);
-  
+
   for (auto& pair : strata) {
     std::vector<int>& group = pair.second;
-    std::shuffle(group.begin(), group.end(), g);
-    
+    if (group.size() > 1) {
+      std::shuffle(group.begin(), group.end(), g);
+    }
+
     const auto counts = apportion_counts(group.size(), split_weights);
-    
+
     size_t offset = 0;
     for (int s = 0; s < num_splits; ++s) {
       for (size_t k = 0; k < counts[s]; ++k) {
@@ -140,13 +164,14 @@ List stratified_split_indices(IntegerVector labels, NumericVector split_weights)
       }
       offset += counts[s];
     }
-    R_CheckUserInterrupt(); // Allow user to cancel in long-running stratification
+    R_CheckUserInterrupt();
   }
-  
+
   List out(num_splits);
   for (int s = 0; s < num_splits; ++s) {
-    // Final shuffle across strata for total randomness
-    std::shuffle(split_acc[s].begin(), split_acc[s].end(), g);
+    if (split_acc[s].size() > 1) {
+      std::shuffle(split_acc[s].begin(), split_acc[s].end(), g);
+    }
     out[s] = wrap(split_acc[s]);
   }
   return out;
@@ -161,6 +186,7 @@ List stratified_split_indices(IntegerVector labels, NumericVector split_weights)
 IntegerVector sample_n(int n) {
   if (n < 0) stop("n cannot be negative.");
   if (n == 0) return IntegerVector(0);
+  
   RNGScope scope;
   R_Generator g;
   IntegerVector x = no_init(n);

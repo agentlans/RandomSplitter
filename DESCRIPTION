@@ -12,7 +12,7 @@ Description: Implements high-performance data splitting utilities
 License: GPL-3
 Roxygen: list(markdown = TRUE)
 LinkingTo: Rcpp
-Imports: Rcpp
+Imports: Rcpp, checkmate
 SystemRequirements: C++17
 RoxygenNote: 7.3.3
 Encoding: UTF-8

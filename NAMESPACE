@@ -3,5 +3,6 @@
 export(shuffle_df)
 export(split_df)
 export(train_test_split)
+import(checkmate)
 importFrom(Rcpp,sourceCpp)
 useDynLib(RandomSplitter, .registration = TRUE)
